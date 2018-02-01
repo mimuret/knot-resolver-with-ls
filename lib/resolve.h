@@ -146,6 +146,8 @@ static inline void kr_rank_set(uint8_t *rank, uint8_t kr_flag)
 typedef array_t(struct kr_module *) module_array_t;
 /* @endcond */
 
+typedef array_t(struct kr_module *) location_array_t;
+
 /**
  * Name resolution context.
  *
@@ -165,6 +167,7 @@ struct kr_context
 	kr_nsrep_lru_t *cache_rtt;
 	kr_nsrep_lru_t *cache_rep;
 	module_array_t *modules;
+	location_array_t *locations;
 	/* The cookie context structure should not be held within the cookies
 	 * module because of better access. */
 	struct kr_cookie_ctx cookie_ctx;

@@ -86,3 +86,10 @@ int lib_event(lua_State *L);
  * @return   number of packages to load
  */
 int lib_worker(lua_State *L);
+
+/**
+ * Load 'lb' package.
+ * @param  L scriptable
+ * @return   number of packages to load
+ */
+int lib_lb(lua_State *L);

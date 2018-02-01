@@ -459,6 +459,9 @@ static int answer_prepare(knot_pkt_t *answer, knot_pkt_t *query, struct kr_reque
 		if (knot_pkt_has_dnssec(query)) {
 			knot_edns_set_do(answer->opt_rr);
 		}
+		if (knot_pkt_has_lbsupport(query)) {
+			knot_edns_set_ls(answer->opt_rr);
+		}
 	}
 	return kr_ok();
 }
@@ -694,6 +697,9 @@ static int query_finalize(struct kr_request *request, struct kr_query *qry, knot
 				if (knot_pkt_has_dnssec(request->answer)) {
 					knot_edns_set_do(pkt->opt_rr);
 				}
+				if (knot_pkt_has_lbsupport(request->answer)) {
+					knot_edns_set_ls(pkt->opt_rr);
+				}
 				if (knot_wire_get_cd(request->answer->wire)) {
 					knot_wire_set_cd(pkt->wire);
 				}
@@ -705,6 +711,9 @@ static int query_finalize(struct kr_request *request, struct kr_query *qry, knot
 			} else if (qry->flags.DNSSEC_WANT) {
 				knot_edns_set_do(pkt->opt_rr);
 				knot_wire_set_cd(pkt->wire);
+			}
+			if (qry->flags.LB_SUPPORT) {
+				knot_edns_set_ls(pkt->opt_rr);
 			}
 			ret = edns_put(pkt);
 		}

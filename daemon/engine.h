@@ -59,6 +59,7 @@ struct engine {
     struct kr_context resolver;
     struct network net;
     module_array_t modules;
+    location_array_t locations;
     array_t(const struct kr_cdb_api *) backends;
     fd_array_t ipc_set;
     knot_mm_t *pool;

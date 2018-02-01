@@ -84,7 +84,7 @@ static int l_help(lua_State *L)
 		"modules\n    modules configuration\n"
 		"kres\n    resolver services\n"
 		"trust_anchors\n    configure trust anchors\n"
-		;
+		"lb\n    load balancing configuration\n";
 	lua_pushstring(L, help_str);
 	return 1;
 }
@@ -585,6 +585,7 @@ static int init_resolver(struct engine *engine)
 	engine->resolver.negative_anchors = map_make();
 	engine->resolver.pool = engine->pool;
 	engine->resolver.modules = &engine->modules;
+	engine->resolver.locations = &engine->locations;
 	/* Create OPT RR */
 	engine->resolver.opt_rr = mm_alloc(engine->pool, sizeof(knot_rrset_t));
 	if (!engine->resolver.opt_rr) {
@@ -765,6 +766,7 @@ void engine_deinit(struct engine *engine)
 	array_clear(engine->modules);
 	array_clear(engine->backends);
 	array_clear(engine->ipc_set);
+	array_clear(engine->locations);
 	kr_ta_clear(&engine->resolver.trust_anchors);
 	kr_ta_clear(&engine->resolver.negative_anchors);
 	free(engine->hostname);

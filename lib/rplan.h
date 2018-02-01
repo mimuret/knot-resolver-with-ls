@@ -62,6 +62,7 @@ struct kr_qflags {
 	bool FORWARD : 1;        /**< Forward all queries to upstream; validate answers. */
 	bool DNS64_MARK : 1;     /**< Internal mark for dns64 module. */
 	bool CACHE_TRIED : 1;    /**< Internal to cache module. */
+	bool LB_SUPPORT : 1;	   /**< Want LB Support */
 };
 
 /** Combine flags together.  This means set union for simple flags. */

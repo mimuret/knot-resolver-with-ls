@@ -2301,7 +2301,8 @@ struct worker_ctx *worker_create(struct engine *engine, knot_mm_t *pool,
 	engine_lualib(engine, "cache",   lib_cache);
 	engine_lualib(engine, "event",   lib_event);
 	engine_lualib(engine, "worker",  lib_worker);
-
+	engine_lualib(engine, "lb", lib_lb);
+	
 	/* Create main worker. */
 	struct worker_ctx *worker = mm_alloc(pool, sizeof(*worker));
 	if (!worker) {

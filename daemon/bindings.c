@@ -143,6 +143,72 @@ int lib_modules(lua_State *L)
 	return 1;
 }
 
+static int lb_add_location(lua_State *L) {
+	/* Retrieve locations list */
+
+	struct engine *engine = engine_luaget(L);
+
+	int n = lua_gettop(L);
+	if (n != 1 || !lua_isstring(L, 1)) {
+		lua_pushliteral(L, "add_location(location)");
+		lua_error(L);
+		return kr_ok();
+	}
+	/* Parse precedence declaration */
+	char *str = lua_tostring(L, 1);
+	kr_log_info("[system] load location '%s'\n", str);
+	int len = strlen(str);
+	char *location = malloc(sizeof(char) * len);
+	char *p = location;
+	*p = len; p++;
+	while(len--) {
+		*p = *str;
+		p++;
+		str++; 
+	}
+
+	if (array_push(engine->locations, location) < 0) {
+		return kr_error(ENOMEM);
+	}
+	return 1;
+}
+
+static int net_location_show(const char *key, void *val, void *ext)
+{
+	lua_State *L = (lua_State *)ext;
+	char *location = val;
+	int len = *location;
+	char buf[255];
+	char *p = buf;
+	buf[len] = '\0';
+	location++;
+	while(len--) {
+		*p = *location;
+		location++;
+		p++;
+	}
+	lua_pushstring(L, buf);
+	return kr_ok();
+}
+
+static int lb_list_location(lua_State *L) {
+	struct engine *engine = engine_luaget(L);
+	lua_newtable(L);
+	map_walk(&engine->locations, net_location_show, L);
+	return 1;
+}
+
+int lib_lb(lua_State *L)
+{
+	static const luaL_Reg lib[] = {
+		{ "add_location",    lb_add_location },
+		{ "list_locations",    lb_list_location },
+		{ NULL, NULL }
+	};
+	register_lib(L, "lb", lib);
+	return 1;
+}
+
 /** Append 'addr = {port = int, udp = bool, tcp = bool}' */
 static int net_list_add(const char *key, void *val, void *ext)
 {
@@ -1423,6 +1489,9 @@ static int wrk_resolve(lua_State *L)
 
 	if (options->DNSSEC_CD) {
 		knot_wire_set_cd(pkt->wire);
+	}
+	if (options->LB_SUPPORT) {
+		knot_edns_set_ls(pkt->opt_rr);
 	}
 
 	/* Create task and start with a first question */

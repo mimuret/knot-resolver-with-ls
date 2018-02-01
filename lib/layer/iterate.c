@@ -35,6 +35,7 @@
 #include <libknot/descriptor.h>
 #include <libknot/rrtype/rdname.h>
 #include <libknot/rrtype/rrsig.h>
+#include <libknot/rrtype/lb.h>
 
 #include "lib/layer/iterate.h"
 #include "lib/resolve.h"
@@ -454,6 +455,19 @@ static void finalize_answer(knot_pkt_t *pkt, struct kr_query *qry, struct kr_req
 	knot_wire_set_rcode(answer->wire, knot_wire_get_rcode(pkt->wire));
 }
 
+static bool lb_location_match(const char* location, knot_rrset_t *rr) {
+	int len = *location + 1;
+	const char *complocation = knot_lb_location(rr);
+	while(len--) {
+		if(*location != *complocation) {
+			return false;
+		}
+		location++;
+		complocation++;
+	}
+	return true;
+}
+
 static int unroll_cname(knot_pkt_t *pkt, struct kr_request *req, bool referral, const knot_dname_t **cname_ret)
 {
 	struct kr_query *query = req->current_query;
@@ -466,6 +480,11 @@ static int unroll_cname(knot_pkt_t *pkt, struct kr_request *req, bool referral, 
 	bool is_final = (query->parent == NULL);
 	uint32_t iter_count = 0;
 	bool strict_mode = (query->flags.STRICT);
+
+	bool has_lb = false;
+	uint16_t select_location = 0xffff;
+	uint32_t *location_weight = malloc(sizeof(uint32_t) * req->ctx->locations->len);
+	const knot_rrset_t *lb_rr;
 	do {
 		/* CNAME was found at previous iteration, but records may not follow the correct order.
 		 * Try to find records for pending_cname owner from section start. */
@@ -478,7 +497,8 @@ static int unroll_cname(knot_pkt_t *pkt, struct kr_request *req, bool referral, 
 			/* Skip the RR if its owner+type doesn't interest us. */
 			const uint16_t type = kr_rrset_type_maysig(rr);
 			const bool type_OK = rr->type == query->stype || type == query->stype
-				|| type == KNOT_RRTYPE_CNAME || type == KNOT_RRTYPE_DNAME;
+				|| type == KNOT_RRTYPE_CNAME || type == KNOT_RRTYPE_DNAME
+				|| type == KNOT_RRTYPE_LB;
 				/* TODO: actually handle DNAMEs */
 			if (!type_OK || !knot_dname_is_equal(rr->owner, cname)) {
 				continue;
@@ -507,6 +527,7 @@ static int unroll_cname(knot_pkt_t *pkt, struct kr_request *req, bool referral, 
 				int cnt_ = 0;
 				state = update_nsaddr(rr, query->parent, &cnt_);
 				if (state == KR_STATE_FAIL) {
+					free(location_weight);
 					return state;
 				}
 			}
@@ -515,12 +536,32 @@ static int unroll_cname(knot_pkt_t *pkt, struct kr_request *req, bool referral, 
 			state = kr_ranked_rrarray_add(&req->answ_selected, rr,
 						      rank, to_wire, query->uid, &req->pool);
 			if (state != kr_ok()) {
+				free(location_weight);
 				return KR_STATE_FAIL;
 			}
 			/* Jump to next CNAME target */
-			if ((query->stype == KNOT_RRTYPE_CNAME) || (rr->type != KNOT_RRTYPE_CNAME)) {
+			if ((query->stype == KNOT_RRTYPE_CNAME)
+				 || (rr->type != KNOT_RRTYPE_CNAME && rr->type != KNOT_RRTYPE_LB)) {
 				continue;
 			}
+
+			/* LB Location selection */
+
+			if ((query->stype == KNOT_RRTYPE_A || query->stype == KNOT_RRTYPE_AAAA) &&
+			     rr->type == KNOT_RRTYPE_LB) {
+				has_lb = true;
+				lb_rr = rr;
+				for (size_t i = 0; i < req->ctx->locations->len && i <= select_location; ++i) {
+					if(lb_location_match(req->ctx->locations->at[i],&rr->rrs)) {
+						*(location_weight + i) += knot_lb_weight(&rr->rrs);
+						if(select_location > i) {
+							select_location = i;
+						}
+					}
+				}
+				continue;
+			}
+
 			cname_chain_len += 1;
 			pending_cname = knot_cname_name(&rr->rrs);
 			if (!pending_cname) {
@@ -528,10 +569,31 @@ static int unroll_cname(knot_pkt_t *pkt, struct kr_request *req, bool referral, 
 			}
 			if (cname_chain_len > an->count || cname_chain_len > KR_CNAME_CHAIN_LIMIT) {
 				VERBOSE_MSG("<= too long cname chain\n");
+				free(location_weight);
 				return KR_STATE_FAIL;
 			}
 			/* Don't use pending_cname immediately.
 			 * There are can be records for "old" cname. */
+		}
+		/* LB Weight selection */
+		if(has_lb) {
+			if(select_location < req->ctx->locations->len) {
+				long int rnd = kr_rand_uint(*(location_weight + select_location));
+				for (unsigned i = 0; i < an->count; ++i) {
+					const knot_rrset_t *rr = knot_pkt_rr(an, i);
+					if(rr->type == KNOT_RRTYPE_LB &&
+						lb_location_match(req->ctx->locations->at[select_location],&rr->rrs)) {
+						uint16_t weight = knot_lb_weight(&rr->rrs);
+						if (rnd <= weight) {
+							pending_cname = knot_lb_name(&rr->rrs);
+							break;
+						}
+						rnd -= weight;
+					}
+				}
+			} else {
+				pending_cname = knot_lb_name(&lb_rr->rrs);
+			}
 		}
 		if (!pending_cname) {
 			break;
@@ -559,9 +621,11 @@ static int unroll_cname(knot_pkt_t *pkt, struct kr_request *req, bool referral, 
 	} while (++iter_count < KR_CNAME_CHAIN_LIMIT);
 	if (iter_count >= KR_CNAME_CHAIN_LIMIT) {
 		VERBOSE_MSG("<= too long cname chain\n");
+		free(location_weight);
 		return KR_STATE_FAIL;
 	}
 	*cname_ret = cname;
+	free(location_weight);
 	return kr_ok();
 }
 
@@ -878,6 +942,8 @@ static int prepare_query(kr_layer_t *ctx, knot_pkt_t *pkt)
 
 	query->uid = req->rplan.next_uid;
 	req->rplan.next_uid += 1;
+
+	query->flags.LB_SUPPORT = true;
 
 	return KR_STATE_CONSUME;
 }
