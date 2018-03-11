@@ -4,7 +4,7 @@
 SCRIPT_DIR=$(dirname $(pwd)/${0})
 
 CMOCKA_TAG="cmocka-1.1.1"
-CMOCKA_URL="git://git.cryptomilk.org/projects/cmocka.git"
+CMOCKA_URL="https://git.cryptomilk.org/projects/cmocka.git"
 LIBUV_TAG="v1.18.0"
 LIBUV_URL="https://github.com/libuv/libuv.git"
 KNOT_TAG="v2.6.4"
